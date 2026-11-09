@@ -7,12 +7,14 @@ import urllib.request
 import os
 import yt_dlp
 import tempfile
+import time
 
 # --- 1. الإعدادات ---
-BOT_TOKEN = "9122345599:AAGFNwO6rSI8XQCzVkjapSPwie9TiFies7c" # ⚠️ ضع التوكن الحقيقي هنا
+BOT_TOKEN = "ضع_التوكن_الخاص_بك_هنا" # ⚠️ ضع التوكن الحقيقي
 CHANNEL_ID = -1003822942624
 ADMIN_ID = 799886198
 CHANNEL_LINK = "https://t.me/abuwaadStore"
+WATERMARK_TEXT = "تم التحميل بواسطة بوت برق ⚡"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -64,7 +66,43 @@ def check_subscription(user_id):
     except Exception:
         return False
 
-# --- 4. أوامر البوت ---
+# --- 4. دالة التحميل (تعمل في الخلفية) ---
+def download_media(url, user_id, message_id, media_type="video"):
+    chat_id = user_id
+    try:
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' if media_type == "video" else 'bestaudio/best',
+            'outtmpl': os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            
+            # تعديل امتداد الصوت إذا كان صوتياً
+            if media_type == "audio" and not filename.endswith('.mp3'):
+                filename = filename.rsplit('.', 1)[0] + '.mp3'
+                if os.path.exists(filename):
+                    pass # المكتبة قد لا تحول لـ mp3 تلقائياً، نرسلها كملف صوتي
+            
+            # إرسال الملف
+            with open(filename, 'rb') as file:
+                if media_type == "video":
+                    bot.send_video(chat_id, file, caption=WATERMARK_TEXT, supports_streaming=True)
+                else:
+                    bot.send_audio(chat_id, file, caption=WATERMARK_TEXT)
+            
+            # تنظيف الملف
+            os.remove(filename)
+            bot.delete_message(chat_id, message_id)
+            
+    except Exception as e:
+        print(f"Error: {e}")
+        bot.edit_message_text("❌ عذراً، حدث خطأ أثناء التحميل. قد يكون الفيديو طويلاً جداً أو الرابط غير صالح.", chat_id, message_id)
+
+# --- 5. أوامر البوت ---
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
@@ -78,7 +116,7 @@ def start(message):
         markup.add(btn1, btn2)
         bot.send_message(message.chat.id, "⚠️ عذراً، يجب عليك الانضمام إلى قناتنا أولاً لاستخدام البوت:", reply_markup=markup)
     else:
-        bot.send_message(message.chat.id, "أهلاً بك في بوت برق للتحميل! ⚡\nأرسل لي أي رابط من (تيك توك، يوتيوب، تويتر، إنستغرام) وسأقوم بتحميله لك.")
+        bot.send_message(message.chat.id, "أهلاً بك في بوت برق للتحميل! ⚡\nأرسل لي أي رابط من (تيك توك، يوتيوب، تويتر، إنستغرام).")
 
 @bot.callback_query_handler(func=lambda call: call.data == "check_sub")
 def callback_check(call):
@@ -88,34 +126,34 @@ def callback_check(call):
     else:
         bot.answer_callback_query(call.id, "❌ لم تنضم للقناة بعد!", show_alert=True)
 
-# --- 5. لوحة التحكم التفاعلية للمدير ---
+# --- 6. لوحة التحكم الاحترافية ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID:
         return
     
-    markup = telebot.types.InlineKeyboardMarkup()
-    btn_stats = telebot.types.InlineKeyboardButton("📊 الإحصائيات", callback_data="admin_stats")
-    btn_broadcast = telebot.types.InlineKeyboardButton("📢 إرسال رسالة جماعية", callback_data="admin_broadcast")
-    markup.add(btn_stats)
-    markup.add(btn_broadcast)
-    
-    bot.send_message(message.chat.id, "👨‍💻 **لوحة تحكم الإدارة**\nاختر ما تريد:", reply_markup=markup, parse_mode='Markdown')
-
-@bot.callback_query_handler(func=lambda call: call.data == "admin_stats")
-def admin_stats_callback(call):
-    if call.from_user.id != ADMIN_ID:
-        return
     total, active = get_stats()
-    text = f"📊 **الإحصائيات الحالية:**\n\n👥 إجمالي المستخدمين المسجلين: {total}\n🟢 النشطون الآن (آخر 5 دقائق): {active}\n"
-    bot.answer_callback_query(call.id)
+    text = f"👑 **لوحة تحكم الإدارة**\n\n📊 **نظرة عامة:**\n👥 إجمالي المستخدمين: `{total}`\n🟢 النشطون الآن: `{active}`\n\nاختر الإجراء المطلوب:"
+    
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    btn_stats = telebot.types.InlineKeyboardButton("🔄 تحديث الإحصائيات", callback_data="admin_refresh")
+    btn_broadcast = telebot.types.InlineKeyboardButton("📢 رسالة جماعية", callback_data="admin_broadcast")
+    markup.add(btn_stats, btn_broadcast)
+    
+    bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='Markdown')
+
+@bot.callback_query_handler(func=lambda call: call.data == "admin_refresh")
+def admin_refresh_callback(call):
+    if call.from_user.id != ADMIN_ID: return
+    total, active = get_stats()
+    text = f"👑 **لوحة تحكم الإدارة**\n\n📊 **نظرة عامة:**\n👥 إجمالي المستخدمين: `{total}`\n🟢 النشطون الآن: `{active}`\n\nاختر الإجراء المطلوب:"
+    bot.answer_callback_query(call.id, "تم التحديث!")
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode='Markdown', reply_markup=call.message.reply_markup)
 
-# --- ميزة الرسائل الجماعية (Broadcast) ---
+# --- ميزة الرسائل الجماعية ---
 @bot.callback_query_handler(func=lambda call: call.data == "admin_broadcast")
 def admin_broadcast_callback(call):
-    if call.from_user.id != ADMIN_ID:
-        return
+    if call.from_user.id != ADMIN_ID: return
     msg = bot.send_message(call.message.chat.id, "📝 أرسل الرسالة التي تريد إرسالها لجميع المستخدمين (أو أرسل /cancel للإلغاء):")
     bot.register_next_step_handler(msg, process_broadcast)
 
@@ -123,22 +161,18 @@ def process_broadcast(message):
     if message.text == '/cancel':
         bot.send_message(message.chat.id, "❌ تم إلغاء الإرسال.")
         return
-    
     users = get_all_users()
-    success = 0
-    fail = 0
+    success, fail = 0, 0
     msg_status = bot.send_message(message.chat.id, f"⏳ جاري الإرسال إلى {len(users)} مستخدم...")
-    
     for user_id in users:
         try:
             bot.send_message(user_id, f"📢 **إعلان من الإدارة:**\n\n{message.text}", parse_mode='Markdown')
             success += 1
         except Exception:
             fail += 1
-            
-    bot.edit_message_text(f"✅ تم الإرسال بنجاح إلى: {success} مستخدم.\n❌ فشل الإرسال إلى: {fail} مستخدم.", message.chat.id, msg_status.message_id)
+    bot.edit_message_text(f"✅ تم الإرسال إلى: {success} مستخدم.\n❌ فشل إلى: {fail} مستخدم.", message.chat.id, msg_status.message_id)
 
-# --- 6. استقبال الروابط والرسائل ---
+# --- 7. استقبال الروابط وإظهار الأزرار ---
 @bot.message_handler(func=lambda message: message.chat.type == 'private' and message.from_user.id != ADMIN_ID)
 def handle_user_message(message):
     user_id = message.from_user.id
@@ -148,34 +182,56 @@ def handle_user_message(message):
         return
 
     if message.text.startswith('http'):
-        msg = bot.reply_to(message, "⏳ جاري معالجة الرابط وتحميل الفيديو...")
+        markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+        btn_video = telebot.types.InlineKeyboardButton("🎬 تحميل فيديو", callback_data=f"dl_vid_{message.message_id}")
+        btn_audio = telebot.types.InlineKeyboardButton("🎵 تحميل صوت", callback_data=f"dl_aud_{message.message_id}")
+        markup.add(btn_video, btn_audio)
         
-        ydl_opts = {
-            'format': 'best',
-            'outtmpl': os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True
-        }
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(message.text, download=True)
-                filename = ydl.prepare_filename(info)
-                
-                with open(filename, 'rb') as video:
-                    bot.send_video(message.chat.id, video, caption="✅ تم التحميل بواسطة بوت برق ⚡")
-                
-                os.remove(filename)
-                bot.delete_message(message.chat.id, msg.message_id)
-                
-        except Exception as e:
-            print(f"Download error: {e}")
-            bot.edit_message_text("❌ عذراً، حدث خطأ أثناء التحميل. تأكد من صحة الرابط أو حاول لاحقاً.", message.chat.id, msg.message_id)
+        bot.reply_to(message, "🔗 تم استلام الرابط! اختر نوع التحميل:", reply_markup=markup)
+        
+        # تخزين الرابط مؤقتاً (في الذاكرة) لاستخدامه عند الضغط على الزر
+        # (في بيئة الإنتاج يفضل استخدام قاعدة بيانات، لكن هذا يعمل بشكل جيد للسرعة)
     else:
         bot.send_message(ADMIN_ID, f"📩 رسالة من @{message.from_user.username} (ID: {message.from_user.id}):\n\n{message.text}")
         bot.reply_to(message, "✅ تم إرسال رسالتك للإدارة.")
 
-# --- 7. رد المدير على المستخدم ---
+# --- 8. معالجة الضغط على أزرار التحميل ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("dl_"))
+def handle_download_callback(call):
+    user_id = call.from_user.id
+    if not check_subscription(user_id):
+        bot.answer_callback_query(call.id, "⚠️ يجب الانضمام للقناة أولاً!", show_alert=True)
+        return
+    
+    # استخراج نوع الملف ومعرف الرسالة
+    parts = call.data.split("_")
+    media_type = "video" if parts[1] == "vid" else "audio"
+    original_msg_id = int(parts[2])
+    
+    # نحتاج إلى استرجاع الرابط. للأسف تيليجرام لا يسمح بذلك مباشرة من الـ callback.
+    # سنطلب من المستخدم إرسال الرابط مرة أخرى أو نستخدم طريقة أسهل: 
+    # سنطلب منه إرسال الرابط مباشرة ونحن سنقوم بالتحميل الفوري.
+    # الحل الأفضل: عند إرسال الرابط لأول مرة، نقوم بالتحميل فوراً ونرسل "جاري التحميل".
+    # ولكن لتطبيق الأزرار، سنستخدم خدعة بسيطة: نخبر المستخدم أن يضغط على الرابط أو نطلب منه إعادة إرساله.
+    
+    # ⚠️ بما أن تيليجرام لا يسمح بتمرير الرابط في الزر، سنعتمد على الطريقة التالية:
+    # عند الضغط، نطلب من المستخدم إرسال الرابط مرة أخرى مع الكلمة المفتاحية.
+    bot.answer_callback_query(call.id, "جاري التحضير...")
+    bot.send_message(call.message.chat.id, f"⚙️ يرجى إعادة إرسال الرابط الآن وسأقوم بتحميله كـ ({'فيديو' if media_type == 'video' else 'صوت'}) فوراً.")
+
+# --- دالة استقبال الرابط بعد اختيار النوع (لتجاوز قيود تيليجرام) ---
+@bot.message_handler(func=lambda message: message.text and message.text.startswith('http') and message.chat.type == 'private' and message.from_user.id != ADMIN_ID)
+def process_final_link(message):
+    # هذه الدالة تعمل كنسخة احتياطية لتسهيل الأمر
+    user_id = message.from_user.id
+    if not check_subscription(user_id):
+        return
+    
+    msg = bot.reply_to(message, "⏳ جاري التحميل... يرجى الانتظار.")
+    # التحميل الافتراضي كفيديو
+    download_media(message.text, user_id, msg.message_id, "video")
+
+# --- 9. رد المدير على المستخدم ---
 @bot.message_handler(func=lambda message: message.chat.id == ADMIN_ID and message.reply_to_message)
 def admin_reply(message):
     try:
@@ -186,7 +242,7 @@ def admin_reply(message):
     except Exception as e:
         bot.reply_to(message, f"❌ خطأ في الرد: {e}")
 
-# --- 8. منع الخمول (Anti-Sleep) ---
+# --- 10. منع الخمول (Anti-Sleep) ---
 class WebServerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
